@@ -1,0 +1,27 @@
+
+services:
+  db:
+    image: mariadb:10.6
+    restart: always
+    environment:
+      - MYSQL_DATABASE=${DB_NAME}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+    ports:
+      - "${DB_PORT}:3306"
+    volumes:
+      - ./db_data:/var/lib/mysql
+
+  web:
+    build: .
+    volumes:
+      - .:/app
+    ports:
+      - "${API_PORT}:${API_PORT}"
+    env_file:
+      - .env
+    depends_on:
+      - db
+    # Usamos la variable para que el comando también sea dinámico
+    command: python manage.py runserver 0.0.0.0:${API_PORT}

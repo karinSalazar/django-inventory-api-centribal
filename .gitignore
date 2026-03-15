@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+centri/
+.env
+
+# Django
+db.sqlite3
+media/
+staticfiles/
+
+# Docker
+.docker/
+db_data/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
