@@ -35,7 +35,7 @@ Este proyecto implementa:
 
 Ejemplo de validación:
 
-- Se devuelve **HTTP 400** si se intenta crear un pedido con **IDs de artículos inexistentes**.
+- El sistema garantiza que no existan pedidos "huérfanos". Se devuelve un **HTTP 400** (Bad Request) con el mensaje específico: {"error": "el artículo con id X no existe."} si se intenta referenciar un ID inexistente.
 
 ---
 
@@ -59,81 +59,65 @@ El proyecto utiliza **Arquitectura Hexagonal (Ports & Adapters)**.
 Esto permite desacoplar la lógica de negocio de la infraestructura.
 
 ```
-              ┌─────────────────────┐
-              │    Presentation     │
-              │  (DRF Controllers)  │
-              └──────────┬──────────┘
-                         │
-              ┌──────────▼──────────┐
-              │     Application     │
-              │      Use Cases      │
-              └──────────┬──────────┘
-                         │
-              ┌──────────▼──────────┐
-              │       Domain        │
-              │  Entities & Logic   │
-              └──────────┬──────────┘
-                         │
-              ┌──────────▼──────────┐
-              │    Infrastructure   │
-              │  ORM / Repositories │
-              └─────────────────────┘
+              LADO DE ENTRADA (Driving)              NÚCLEO (Core)             LADO DE SALIDA (Driven)
+      
+      ┌──────────────────────┐           ┌───────────────────┐          ┌──────────────────────┐
+      │     PRESENTATION     │           │    APPLICATION    │          │    INFRASTRUCTURE    │
+      │  (Adaptador REST)    │           │   (Casos de Uso)  │          │    (Adaptador DB)    │
+      ├──────────────────────┤           ├───────────────────┤          ├──────────────────────┤
+      │                      │           │                   │          │                      │
+      │  - views.py          │           │  - use_cases.py   │          │  - repositories.py   │
+      │  - serializers.py    │ ────────▶ │                   │ ────────▶ │  - models.py (ORM)   │
+      │  - urls.py           │           │                   │          │  - migrations/       │
+      │                      │           └─────────┬─────────┘          │                      │
+      └──────────────────────┘                     │                    └──────────────────────┘
+                                                   │
+                                         ┌─────────▼─────────┐
+                                         │      DOMAIN       │
+                                         │ (Reglas de Oro)   │
+                                         ├───────────────────┤
+                                         │                   │
+                                         │  - models.py      │
+                                         │    (Entidades)    │
+                                         │                   │
+                                         └───────────────────┘
 ```
 
 ### Capas del sistema
 
-**Domain**
-
-- Entidades del negocio
-- Cálculo de IVA
-- Reglas de negocio
-
-**Application**
-
-- Casos de uso
-- Orquestación de operaciones
-
-**Infrastructure**
-
-- Implementación de repositorios
-- Persistencia con Django ORM
-- Conexión a la base de datos
-
-**Presentation**
-
-- Endpoints REST
-- Serializers
-- Validación de entrada
+* **Domain:** Contiene las entidades puras (`Order`, `OrderItem`) y la lógica de cálculo de IVA.
+* **Application:** Casos de uso que orquestan las operaciones (ej. `OrderUseCases`).
+* **Infrastructure:** Implementación de repositorios con Django ORM y persistencia física.
+* **Presentation:** Endpoints REST, Serializers y validación de entrada.
 
 ---
 
 # 📁 Estructura del proyecto
 
 ```
-project/
+app/
+├── articles/                # Módulo de Gestión de Artículos
+│   ├── application/         # Casos de uso (use_cases.py)
+│   ├── domain/              # Entidades y lógica pura (models.py)
+│   ├── infrastructure/      # Persistencia (models.py, repositories.py, migrations/)
+│   └── presentation/        # Entrada/Salida (views.py, serializers.py, urls.py)
 │
-├── domain/
-│   ├── entities
-│   └── services
+├── orders/                  # Módulo de Gestión de Pedidos
+│   ├── application/         # Casos de uso y lógica de procesamiento
+│   ├── domain/              # Lógica de cálculo (IVA 21%, totales)
+│   ├── infrastructure/      # Repositorios ORM y migrations/
+│   └── presentation/        # API Endpoints y Serializers
 │
-├── application/
-│   └── use_cases
+├── core/                    # Lógica compartida (excepciones y modelos base)
+└── tests.py                 # Pruebas unitarias y de integración
 │
-├── infrastructure/
-│   ├── repositories
-│   └── models
-│
-├── presentation/
-│   ├── api
-│   └── serializers
-│
-├── postman/
+├── postman/                 # Colección de pruebas para importar
 │   └── centribal_api_collection.json
 │
-├── docker-compose.yml
-├── Dockerfile
-└── manage.py
-```
+├── centribal_project/       # Configuración global de Django
+├── docker-compose.yml       # Orquestación de servicios
+├── Dockerfile               # Imagen de la aplicación
+└── .env.example             # Plantilla de variables de entorno
 
 ---
 
@@ -191,6 +175,7 @@ El proyecto incluye:
 - **Tests de integración** para los endpoints
 
 Ejecutar los tests dentro del entorno Docker:
+Nota: Se utiliza temporalmente el usuario root para permitir que Django cree la base de datos de pruebas en el contenedor.
 
 ```bash
 docker-compose exec -e DB_USER=root -e DB_PASSWORD=root web python manage.py test
@@ -217,7 +202,7 @@ El sistema valida que todos los artículos del pedido existan en la base de dato
 En caso contrario se devuelve:
 
 ```
-HTTP 400 - Bad Request
+Se devuelve HTTP 400 con el mensaje {"error": "el artículo con id X no existe."} si se intenta referenciar un artículo inexistente. Esto asegura que no se creen pedidos con datos huérfanos.
 ```
 
 ---
@@ -235,9 +220,23 @@ POST /api/articles/
 Body:
 
 ```json
+Request Payload 
 {
-  "name": "Laptop",
-  "price": 1000
+    "reference": "PROD-001",
+    "name": "Monitor Gamer 24 pulgadas",
+    "description": "Frecuencia de 144Hz IPS",
+    "price_without_tax": 200.0,
+    "tax_rate": 21.0
+}
+Response Payload
+{
+    "id": 1,
+    "reference": "PROD-001",
+    "name": "Monitor Gamer 24 pulgadas",
+    "description": "Frecuencia de 144Hz IPS",
+    "price_without_tax": 200.0,
+    "tax_rate": 21.0,
+    "created_at": "2026-03-15T02:02:58.267619Z"
 }
 ```
 
@@ -260,11 +259,42 @@ POST /api/orders/
 ```
 
 Body:
-
 ```json
-{
-  "items": [1, 2, 3]
+Request Payload 
+[
+    {
+        "article_id": 1, 
+        "quantity": 5
+    }
+]
+Response Payload
+  {
+    "id": 1,
+    "created_at": "2026-03-15T02:03:12.416102Z",
+    "items": [
+        {
+            "reference": "PROD-001",
+            "quantity": 5,
+            "total_without_tax": 1000.0,
+            "total_with_tax": 1210.0
+        }
+    ],
+    "total_price_without_tax": 1000.0,
+    "total_price_with_tax": 1210.0
 }
+
+Body:
+```json
+Request Payload 
+[
+  {
+    "article_id": 999,
+    "quantity": 1
+  }
+]
+Response Payload
+Status: 400 Bad Request
+{"error": "el artículo con id 999 no existe."}
 ```
 
 El sistema calcula automáticamente:
